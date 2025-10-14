@@ -14,15 +14,14 @@ function normalizeResults(raw: any): any[] {
   }
   return [raw];
 }
-
 /**
  *  Obtener registros por rango de fechas
  */
 export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => {
   const { fecha_inicio, fecha_fin, generarExcel } = req.body;
 
-  console.log('[obtenerRegistrosPorFechas] Petición recibida:', { fecha_inicio, fecha_fin, generarExcel });
-  
+  console.log('[obtenerRegistrosPorFechas] PeticiÃ³n recibida:', { fecha_inicio, fecha_fin, generarExcel });
+
   if (!fecha_inicio || !fecha_fin) {
     return res.status(400).json({ error: 'Las fechas son requeridas' });
   }
@@ -35,7 +34,7 @@ export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => 
 
   console.log('Fecha de inicio:', fechaInicioString);
   console.log('Fecha de fin:', fechaFinString);
-  console.log('¿Generar Excel?:', generarExcel);
+  console.log('Â¿Generar Excel?:', generarExcel);
 
   try {
     const raw = await connection.query(
@@ -46,24 +45,30 @@ export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => 
       }
     );
 
-    let results = normalizeResults(raw);
+    // Normalizar resultados del procedimiento almacenado
+    const results = normalizeResults(raw);
 
-    // Si el objeto tiene claves numéricas, convertirlo a un array
-    if (results.length > 0 && typeof results[0] === 'object' && !Array.isArray(results[0])) {
-      const firstItem = results[0];
-      const keys = Object.keys(firstItem);
-      
-      if (keys.length > 0 && keys.every(key => !isNaN(Number(key)))) {
-        console.log('[normalizeResults] Detectado objeto con claves numéricas, convirtiendo a array');
-        results = Object.values(firstItem);
-      }
-    }
-
-    // Parsear los datos si son cadenas JSON
+    // Algunas BDs devuelven una sola columna con JSON string por fila
+    // Ej: {"cedula":"...","razon_social":"..."}
     const parsedRows = results.map((row: any) => {
+      // Caso 1: la fila es directamente un string JSON
       if (typeof row === 'string') {
         try { return JSON.parse(row); } catch { return { valor: row }; }
       }
+      // Caso 2: la fila es un objeto con una sola propiedad que contiene JSON string
+      if (row && typeof row === 'object') {
+        const values = Object.values(row);
+        if (values.length === 1 && typeof values[0] === 'string') {
+          try { return JSON.parse(values[0] as string); } catch { return row; }
+        }
+      }
+      return row;
+    });
+    
+    // Asegurar que parsedRows sea un array plano
+    let finalRows = Array.isArray(parsedRows) ? parsedRows : Object.values(parsedRows); }
+      }
+      // Caso 2: la fila es un objeto con una sola propiedad que contiene JSON string
       if (row && typeof row === 'object') {
         const values = Object.values(row);
         if (values.length === 1 && typeof values[0] === 'string') {
@@ -74,28 +79,32 @@ export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => 
     });
 
     console.log(`[obtenerRegistrosPorFechas] Total de registros: ${results.length}. Tras parseo: ${parsedRows.length}`);
-    
-    if (generarExcel) {
-      console.log('[Excel] Iniciando generación de Excel...');
 
+    // Si se desea generar Excel
+    if (generarExcel) {
+      console.log('[Excel] Iniciando generaciÃ³n de Excel...');
+      
       if (!parsedRows || parsedRows.length === 0) {
         console.log('[Excel] ERROR: No hay datos para exportar');
         return res.status(404).json({ error: 'No hay datos para exportar' });
       }
 
-      // Crear libro de trabajo de Excel
+      console.log(`[Excel] Generando Excel con ${parsedRows.length} registros`);
+
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Registros por Fechas');
-
+      
+      // Obtener los nombres de las columnas del primer registro
       const columnas = Object.keys(parsedRows[0]);
-
-      // Configurar las columnas de Excel
-      worksheet.columns = columnas.map(key => ({
-        header: key.toUpperCase(),
+      
+      // Definir columnas con encabezados y formateo
+      worksheet.columns = columnas.map(key => ({ 
+        header: key.toUpperCase(), 
         key: key,
-        width: 15
+        width: 15 
       }));
 
+      // Estilo para encabezados
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).fill = {
         type: 'pattern',
@@ -103,12 +112,12 @@ export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => 
         fgColor: { argb: 'FFD3D3D3' }
       };
 
-      // Agregar las filas de datos al Excel
+      // Agregar filas de datos
       parsedRows.forEach((row: any) => {
         worksheet.addRow(row);
       });
 
-      // Ajustar el ancho de las columnas automáticamente
+      // Ajustar anchos de columna automÃ¡ticamente
       worksheet.columns.forEach(column => {
         let maxLength = 0;
         column.eachCell({ includeEmpty: true }, cell => {
@@ -120,28 +129,28 @@ export const obtenerRegistrosPorFechas = async (req: Request, res: Response) => 
         column.width = maxLength < 10 ? 10 : maxLength + 2;
       });
 
-      // Configurar los encabezados para la descarga del archivo
+      // Configurar headers de respuesta para descarga de archivo
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=registros_${fechaInicioString}_${fechaFinString}.xlsx`);
       
       console.log('[Excel] Headers configurados, escribiendo archivo...');
-
-      // Escribir el archivo en la respuesta
+      
+      // Escribir el archivo Excel en el stream de respuesta
       await workbook.xlsx.write(res);
       res.end();
-
-      console.log('[Excel] Archivo Excel generado y enviado exitosamente');
+      
+      console.log('[Excel] âœ… Archivo Excel generado y enviado exitosamente');
       return;
     } else {
-      // Si no se requiere generar Excel, devolver datos en formato JSON
+      // Devolver JSON si no se solicita Excel
       console.log('[JSON] Devolviendo datos en formato JSON (normalizados)');
       return res.json(parsedRows);
     }
-
+  
   } catch (err: any) {
-    console.error('Error al llamar el procedimiento:', err);
+    console.error('âŒ Error al llamar el procedimiento:', err);
     console.error('Stack trace:', err.stack);
-    return res.status(500).json({
+    return res.status(500).json({ 
       error: 'Error en la base de datos',
       message: err.message || 'Error desconocido'
     });
@@ -155,17 +164,18 @@ export const obtenerRegistrosFirmasFactura = async (req: Request, res: Response)
   const { fecha_inicio, fecha_fin } = req.body;
 
   console.log('Fecha recibida - inicio:', fecha_inicio);
-  console.log('Fecha recibida - fin:', fecha_fin);
+  console.log('Fecha recibida - fin:', fecha_fin); 
 
+  
   if (!fecha_inicio || !fecha_fin) {
     return res.status(400).json({ error: 'Las fechas son requeridas' });
   }
 
   const regexFecha = /^\d{4}-\d{2}-\d{2}$/;
   if (!regexFecha.test(fecha_inicio) || !regexFecha.test(fecha_fin)) {
-    return res.status(400).json({ error: 'Formato de fecha inválido. Use YYYY-MM-DD.' });
+    return res.status(400).json({ error: 'Formato de fecha invÃ¡lido. Use YYYY-MM-DD.' });
   }
-
+  
   try {
     const results = await connection.query(
       'CALL firmasecuador.obtener_firmas_factura_fechas(?, ?)',
@@ -202,7 +212,7 @@ export const obtenerReporteDistribuidores = async (req: Request, res: Response) 
 
   const fechaInicioString = fechaInicioFormateada.toISOString().split('T')[0];
   const fechaFinString = fechaFinFormateada.toISOString().split('T')[0];
-
+  
   console.log('Fecha de inicio:', fechaInicioString);
   console.log('Fecha de fin:', fechaFinString);
 
@@ -222,16 +232,11 @@ export const obtenerReporteDistribuidores = async (req: Request, res: Response) 
   }
 };
 
-/**
- * Endpoint que llama al procedimiento FirmasporVencer en la BD 2 (DB_*_2)
- */
+// Endpoint que llama al procedimiento FirmasporVencer en la BD 2 (DB_*_2)
 export const obtenerFirmasEstado = async (req: Request, res: Response) => {
   const { fecha_inicio, fecha_fin, estado = 'Todos', page, pageSize } = req.body || {};
-  
-  if (!fecha_inicio || !fecha_fin) {
-    return res.status(400).json({ error: 'Debes proporcionar ambas fechas.' });
-  }
-  
+  if (!fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'Debes proporcionar ambas fechas.' });
+
   try {
     const raw: any = await connection_firmas_2.query('CALL FirmasporVencer(?, ?, ?)', {
       replacements: [fecha_inicio, fecha_fin, estado],
@@ -253,3 +258,4 @@ export const obtenerFirmasEstado = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Error en la base de datos' });
   }
 };
+
