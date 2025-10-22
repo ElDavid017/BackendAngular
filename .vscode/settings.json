@@ -1,0 +1,9 @@
+{
+  // Asociar archivos de respaldo que terminan en .ts.backup con el lenguaje TypeScript
+  "files.associations": {
+    "*.ts.backup": "typescript",
+    "*.backup.ts": "typescript"
+  },
+  // Forzar codificación UTF-8 al abrir/guardar archivos en este workspace
+  "files.encoding": "utf8"
+}

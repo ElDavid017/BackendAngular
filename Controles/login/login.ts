@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import connection from '../../database/connection_firmas';
+import connection from '../../database/connection_firmador';
 import { QueryTypes } from 'sequelize';
 
 /**
@@ -72,10 +72,11 @@ async function validateUser(Usuario: string, Clave: string) {
       return null;
     }
 
-    // Posibles patrones de columnas
-    const idPatterns = [/ident/i, /cedu/i, /ced/i, /dni/i, /id$/i];
-    const namePatterns = [/nombre/i, /name/i, /usuario/i, /user/i];
-    const passPatterns = [/clave/i, /pass/i, /password/i];
+  // Posibles patrones de columnas
+  const idPatterns = [/ident/i, /cedu/i, /ced/i, /dni/i, /id$/i];
+  const namePatterns = [/nombre/i, /name/i, /usuario/i, /user/i];
+  const apellidoPatterns = [/apellido/i, /apellid/i, /lastname/i, /last_name/i];
+  const passPatterns = [/clave/i, /pass/i, /password/i];
 
     for (const tname of tableNames) {
       try {
@@ -85,15 +86,23 @@ async function validateUser(Usuario: string, Clave: string) {
         const colNames = Array.isArray(cols) ? cols.map((c: any) => (c.Field ? c.Field : c)) : Object.keys(cols || {});
 
         // Buscar columnas candidatas
-        const idCol = colNames.find((c: string) => idPatterns.some((p) => p.test(c))) || colNames.find((c: string) => /id/i.test(c));
-        const nameCol = colNames.find((c: string) => namePatterns.some((p) => p.test(c)));
-        const passCol = colNames.find((c: string) => passPatterns.some((p) => p.test(c)));
+  const idCol = colNames.find((c: string) => idPatterns.some((p) => p.test(c))) || colNames.find((c: string) => /id/i.test(c));
+  const nameCol = colNames.find((c: string) => namePatterns.some((p) => p.test(c)));
+  const apellidoCol = colNames.find((c: string) => apellidoPatterns.some((p) => p.test(c)));
+  const passCol = colNames.find((c: string) => passPatterns.some((p) => p.test(c)));
+    // Buscar columna de perfil/rol (ej: USUPERFIL, perfil, rol, role, profile)
+  // Buscar columna de perfil/rol (ej: USUPERFIL, perfil, rol, role, profile) o COMCODIGO
+  const perfilCol = colNames.find((c: string) => /usuperfil|perfil|rol|role|profile/i.test(c));
+  const comCodigoCol = colNames.find((c: string) => /comcodigo/i.test(c));
 
         // Construir lista de columnas a seleccionar
         const selectCols = new Set<string>();
-        if (idCol) selectCols.add(idCol);
-        if (nameCol) selectCols.add(nameCol);
-        if (passCol) selectCols.add(passCol);
+  if (idCol) selectCols.add(idCol);
+  if (nameCol) selectCols.add(nameCol);
+  if (apellidoCol) selectCols.add(apellidoCol);
+  if (passCol) selectCols.add(passCol);
+  if (perfilCol) selectCols.add(perfilCol);
+  if (comCodigoCol) selectCols.add(comCodigoCol);
         if (colNames.includes('telefono')) selectCols.add('telefono');
         if (colNames.includes('correo')) selectCols.add('correo');
 
@@ -122,11 +131,14 @@ async function validateUser(Usuario: string, Clave: string) {
 
         // Mapear a las claves esperadas por el resto del código
         const mapped: any = {};
-        mapped.USUIDENTIFICACION = userRow[idCol];
-        mapped.USUNOMBRE = nameCol ? userRow[nameCol] : (userRow[passCol] || userRow[idCol]);
-        mapped.USUCLAVE = passCol ? userRow[passCol] : null;
-        mapped.telefono = userRow.telefono || null;
-        mapped.correo = userRow.correo || null;
+  mapped.USUIDENTIFICACION = userRow[idCol];
+  mapped.USUNOMBRE = nameCol ? userRow[nameCol] : (userRow[passCol] || userRow[idCol]);
+  mapped.USUAPELLIDO = apellidoCol ? userRow[apellidoCol] : null;
+  mapped.USUCLAVE = passCol ? userRow[passCol] : null;
+  mapped.telefono = userRow.telefono || null;
+  mapped.correo = userRow.correo || null;
+  // Preferir columna explícita de perfil; si no existe, usar COMCODIGO como fallback
+  mapped.USUPERFIL = perfilCol ? userRow[perfilCol] : (comCodigoCol ? userRow[comCodigoCol] : null);
 
         console.log(`[validateUser] usuario detectado en tabla ${tname}:`, mapped);
 
@@ -166,8 +178,10 @@ export const login = async (req: Request, res: Response) => {
     const publicUser = {
       USUIDENTIFICACION: user.USUIDENTIFICACION,
       USUNOMBRE: user.USUNOMBRE,
+      USUAPELLIDO: user.USUAPELLIDO || null,
       telefono: user.telefono || null,
       correo: user.correo || null,
+      USUPERFIL: user.USUPERFIL || null,
     };
 
     // Generar un token simple para el frontend (no es una implementación JWT completa)

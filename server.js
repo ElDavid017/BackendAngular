@@ -12,7 +12,7 @@ app.use((req, res, next) => {
   // Si es GET y acepta HTML (navegador recargando ruta SPA), redirigir al frontend
   if (req.method === 'GET' && req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-    console.log('Redirigiendo petición HTML GET', req.url, '->', frontendUrl + req.originalUrl);
+    console.log('Redirigiendo peticiï¿½n HTML GET', req.url, '->', frontendUrl + req.originalUrl);
     return res.redirect(302, frontendUrl + req.originalUrl);
   }
   next();
@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 const reportesRouter = require('./routes/reportes.ts').default || require('./routes/reportes.ts');
 app.use('/', reportesRouter);
 
-// Ruta de prueba (después de las rutas de API)
+// Ruta de prueba (despuï¿½s de las rutas de API)
 app.get('/', (req, res) => {
   res.send('Servidor backend funcionando ');
 });
